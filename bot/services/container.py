@@ -52,6 +52,7 @@ class ServiceContainer:
         self._pricing_service = None
         self._user_service = None
         self._broadcast_service = None
+        self._narrative_service = None
 
         logger.debug("🏭 ServiceContainer inicializado (modo lazy)")
 
@@ -188,6 +189,32 @@ class ServiceContainer:
 
         return self._broadcast_service
 
+    # ===== NARRATIVE SERVICE =====
+
+    @property
+    def narrative(self):
+        """
+        Service de narrativa interactiva.
+
+        Gestiona el motor narrativo completo:
+        - Estado y progresion del usuario
+        - Decisiones y consecuencias
+        - Patrones y arquetipos
+        - Relaciones con personajes
+        - Seleccion de dialogos personalizados
+
+        Se carga lazy (solo en primer acceso).
+
+        Returns:
+            NarrativeService: Instancia del service
+        """
+        if self._narrative_service is None:
+            from bot.services.narrative import NarrativeService
+            logger.debug("Lazy loading: NarrativeService")
+            self._narrative_service = NarrativeService(self._session)
+
+        return self._narrative_service
+
     # ===== UTILIDADES =====
 
     def get_loaded_services(self) -> list[str]:
@@ -215,6 +242,8 @@ class ServiceContainer:
             loaded.append("user")
         if self._broadcast_service is not None:
             loaded.append("broadcast")
+        if self._narrative_service is not None:
+            loaded.append("narrative")
 
         return loaded
 
