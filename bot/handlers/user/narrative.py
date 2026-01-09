@@ -358,18 +358,56 @@ async def handle_narrative_choice(
         await service.analyze_patterns(user_id)
         await service.detect_archetype(user_id)
 
-    # 5. Obtener siguiente dialogo
-    next_trigger = consequences.get("next_trigger", f"{scene_id}_after_{choice_key}")
-    next_dialogue = await service.get_next_dialogue(user_id, next_trigger)
-
-    # 6. Enviar respuesta
     await callback.answer()  # Quitar loading del boton
 
-    if next_dialogue:
-        await _send_dialogue(callback.message, next_dialogue, state)
+    # 5. Buscar siguiente escena desde consecuencias o escena actual
+    delivery = NarrativeDeliveryService(session)
+    next_scene_id = consequences.get("next_scene_id")
+
+    if not next_scene_id:
+        # No hay next_scene específico en la opción, usar default de la escena
+        current_scene = await delivery.get_scene(scene_id)
+        if current_scene:
+            next_scene_id = current_scene.next_scene_default
+
+    # 6. Avanzar a siguiente escena
+    if next_scene_id:
+        next_scene = await delivery.get_scene(next_scene_id)
+        if next_scene:
+            # Actualizar estado
+            await service.set_current_scene(user_id, next_scene_id)
+            await state.update_data(
+                current_scene=next_scene_id,
+                dialogue_index=0
+            )
+
+            # Obtener diálogos de la siguiente escena
+            next_dialogues = await delivery.get_scene_dialogues(
+                next_scene_id, user_state
+            )
+
+            # Enviar un pequeño delay para que el usuario procese su decisión
+            await asyncio.sleep(0.5)
+
+            # Enviar diálogos de la siguiente escena
+            await _send_scene_dialogues(
+                callback.message, next_dialogues, state, session
+            )
+        else:
+            # Error: escena no encontrada
+            await callback.message.edit_text(
+                f"<i>Tu decisión ha sido registrada.</i>\n\n"
+                f"[Error: Escena {next_scene_id} no encontrada]",
+                parse_mode="HTML"
+            )
     else:
-        # Enviar respuesta por defecto o continuar escena
-        await _send_choice_feedback(callback.message, choice_key, consequences)
+        # No hay siguiente escena, fin del contenido
+        await callback.message.edit_text(
+            "<b>Fin del contenido</b>\n\n"
+            "Has completado esta parte de la historia.\n\n"
+            "Pronto habrá más contenido disponible.",
+            parse_mode="HTML"
+        )
 
     await session.commit()
 
