@@ -20,7 +20,6 @@ from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from config import Config
 from bot.database.models import (
     InvitationToken,
     VIPSubscriber,

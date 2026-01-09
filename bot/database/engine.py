@@ -24,6 +24,13 @@ try:
 except ImportError:
     pass
 
+# Importar modelos narrativos para registrarlos en metadata
+try:
+    import bot.database.narrative_models  # noqa: F401
+    import bot.database.scene_models  # noqa: F401
+except ImportError:
+    pass
+
 logger = logging.getLogger(__name__)
 
 # ===== ENGINE GLOBAL =====

@@ -126,9 +126,8 @@ class ServiceContainer:
             StatsService: Instancia del service
         """
         if self._stats_service is None:
-            from bot.services.stats import StatsService
-            logger.debug("🔄 Lazy loading: StatsService")
-            self._stats_service = StatsService(self._session)
+            # El servicio de estadísticas no está implementado todavía
+            raise NotImplementedError("El servicio de estadísticas (StatsService) no está implementado todavía.")
 
         return self._stats_service
 

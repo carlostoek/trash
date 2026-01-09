@@ -12,10 +12,11 @@ import asyncio
 import logging
 from typing import List, Dict, Any, Optional
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from bot.database.engine import init_db, close_db, get_session
+from bot.database.engine import init_db, close_db, get_session, get_engine
+from bot.database.base import Base
 from bot.database.scene_models import (
     NarrativeChapter,
     NarrativeScene,
@@ -25,6 +26,39 @@ from bot.database.scene_models import (
 from bot.database.enums import ArchetypeType
 
 logger = logging.getLogger(__name__)
+
+
+async def recreate_narrative_tables() -> None:
+    """
+    Elimina y recrea las tablas de escenas narrativas.
+
+    Usar cuando el esquema de las tablas cambia.
+    """
+    engine = get_engine()
+
+    # Tablas a recrear (en orden inverso por FK)
+    tables_to_recreate = [
+        DialogueOption.__table__,
+        SceneDialogue.__table__,
+        NarrativeScene.__table__,
+        NarrativeChapter.__table__,
+    ]
+
+    async with engine.begin() as conn:
+        # Eliminar tablas existentes
+        for table in tables_to_recreate:
+            try:
+                await conn.execute(text(f"DROP TABLE IF EXISTS {table.name}"))
+                logger.info(f"Tabla {table.name} eliminada")
+            except Exception as e:
+                logger.warning(f"Error eliminando tabla {table.name}: {e}")
+
+        # Recrear tablas
+        for table in reversed(tables_to_recreate):
+            await conn.run_sync(lambda sync_conn: table.create(sync_conn, checkfirst=True))
+            logger.info(f"Tabla {table.name} creada")
+
+    logger.info("Tablas narrativas recreadas correctamente")
 
 
 async def seed_narrative_content(
@@ -293,9 +327,15 @@ async def main():
     # Verificar argumentos
     clear = "--no-clear" not in sys.argv
     verify_only = "--verify" in sys.argv
+    recreate_tables = "--recreate-tables" in sys.argv
 
     try:
         await init_db()
+
+        # Recrear tablas si se solicita o si hay error de esquema
+        if recreate_tables:
+            print("\nRecreando tablas narrativas...")
+            await recreate_narrative_tables()
 
         if verify_only:
             print("\nVerificando contenido existente...")
@@ -306,8 +346,18 @@ async def main():
             print(f"  - Dialogues: {stats['dialogues']}")
             print(f"  - Options:   {stats['options']}")
         else:
-            print(f"\nCargando contenido (clear_existing={clear})...")
-            stats = await seed_narrative_content(clear_existing=clear)
+            try:
+                print(f"\nCargando contenido (clear_existing={clear})...")
+                stats = await seed_narrative_content(clear_existing=clear)
+            except Exception as e:
+                if "no column named" in str(e) or "no such column" in str(e):
+                    print("\nEsquema de tablas desactualizado. Recreando tablas...")
+                    await recreate_narrative_tables()
+                    print("\nReintentando carga de contenido...")
+                    stats = await seed_narrative_content(clear_existing=clear)
+                else:
+                    raise
+
             print(f"\nContenido cargado:")
             print(f"  - Chapters:  {stats['chapters']}")
             print(f"  - Scenes:    {stats['scenes']}")

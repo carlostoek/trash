@@ -33,6 +33,7 @@ class ConfigService:
             session: Sesión de base de datos
         """
         self.session = session
+        self._cached_config = None  # Cache para la configuración
         logger.debug("✅ ConfigService inicializado")
 
     # ===== GETTERS =====
@@ -47,15 +48,18 @@ class ConfigService:
         Raises:
             RuntimeError: Si BotConfig no existe (no debería pasar)
         """
-        config = await self.session.get(BotConfig, 1)
+        if self._cached_config is None:
+            config = await self.session.get(BotConfig, 1)
 
-        if config is None:
-            raise RuntimeError(
-                "BotConfig no encontrado. "
-                "Ejecuta init_db() para crear la configuración inicial."
-            )
+            if config is None:
+                raise RuntimeError(
+                    "BotConfig no encontrado. "
+                    "Ejecuta init_db() para crear la configuración inicial."
+                )
 
-        return config
+            self._cached_config = config
+
+        return self._cached_config
 
     async def get_wait_time(self) -> int:
         """
@@ -117,6 +121,10 @@ class ConfigService:
         config = await self.get_config()
         return config.subscription_fees if config.subscription_fees else {}
 
+    def _invalidate_cache(self) -> None:
+        """Invalida la caché de configuración."""
+        self._cached_config = None
+
     # ===== SETTERS =====
 
     async def set_wait_time(self, minutes: int) -> None:
@@ -137,6 +145,7 @@ class ConfigService:
         config.wait_time_minutes = minutes
 
         await self.session.commit()
+        self._invalidate_cache()  # Invalidate cache after update
 
         logger.info(
             f"⏱️ Tiempo de espera Free actualizado: "
@@ -163,6 +172,7 @@ class ConfigService:
         config.vip_reactions = reactions
 
         await self.session.commit()
+        self._invalidate_cache()  # Invalidate cache after update
 
         logger.info(f"✅ Reacciones VIP actualizadas: {', '.join(reactions)}")
 
@@ -186,6 +196,7 @@ class ConfigService:
         config.free_reactions = reactions
 
         await self.session.commit()
+        self._invalidate_cache()  # Invalidate cache after update
 
         logger.info(f"✅ Reacciones Free actualizadas: {', '.join(reactions)}")
 
@@ -211,6 +222,7 @@ class ConfigService:
         config.subscription_fees = fees
 
         await self.session.commit()
+        self._invalidate_cache()  # Invalidate cache after update
 
         logger.info(f"💰 Tarifas actualizadas: {fees}")
 
@@ -257,6 +269,7 @@ class ConfigService:
         config.free_welcome_message = message.strip()
 
         await self.session.commit()
+        self._invalidate_cache()  # Invalidate cache after update
 
         logger.info(f"💬 Mensaje Free actualizado: {message[:50]}...")
 
@@ -345,6 +358,7 @@ class ConfigService:
         config.subscription_fees = {"monthly": 10, "yearly": 100}
 
         await self.session.commit()
+        self._invalidate_cache()  # Invalidate cache after update
 
         logger.warning("⚠️ Configuración reseteada a valores por defecto")
 

@@ -62,17 +62,13 @@ class ChannelService:
 
         return config
 
-    async def setup_vip_channel(self, channel_id: str) -> Tuple[bool, str]:
+    async def _setup_channel(self, channel_id: str, channel_type: str) -> Tuple[bool, str]:
         """
-        Configura el canal VIP.
-
-        Validaciones:
-        - Verifica que el canal existe
-        - Verifica que el bot es admin del canal
-        - Verifica permisos necesarios (invite users)
+        Método privado auxiliar para configurar canales VIP o Free.
 
         Args:
-            channel_id: ID del canal (ej: "-1001234567890")
+            channel_id: ID del canal
+            channel_type: Tipo de canal ('vip' o 'free')
 
         Returns:
             Tuple[bool, str]: (éxito, mensaje)
@@ -97,15 +93,38 @@ class ChannelService:
         if not is_valid:
             return False, perm_message
 
-        # Guardar en configuración
+        # Guardar en configuración según el tipo de canal
         config = await self.get_bot_config()
-        config.vip_channel_id = channel_id
+
+        if channel_type == 'vip':
+            config.vip_channel_id = channel_id
+        elif channel_type == 'free':
+            config.free_channel_id = channel_id
+        else:
+            return False, f"❌ Tipo de canal desconocido: {channel_type}"
 
         await self.session.commit()
 
-        logger.info(f"✅ Canal VIP configurado: {channel_id} ({chat.title})")
+        logger.info(f"✅ Canal {channel_type.upper()} configurado: {channel_id} ({chat.title})")
 
-        return True, f"✅ Canal VIP configurado: <b>{chat.title}</b>"
+        return True, f"✅ Canal {channel_type.upper()} configurado: <b>{chat.title}</b>"
+
+    async def setup_vip_channel(self, channel_id: str) -> Tuple[bool, str]:
+        """
+        Configura el canal VIP.
+
+        Validaciones:
+        - Verifica que el canal existe
+        - Verifica que el bot es admin del canal
+        - Verifica permisos necesarios (invite users)
+
+        Args:
+            channel_id: ID del canal (ej: "-1001234567890")
+
+        Returns:
+            Tuple[bool, str]: (éxito, mensaje)
+        """
+        return await self._setup_channel(channel_id, 'vip')
 
     async def setup_free_channel(self, channel_id: str) -> Tuple[bool, str]:
         """
@@ -119,33 +138,7 @@ class ChannelService:
         Returns:
             Tuple[bool, str]: (éxito, mensaje)
         """
-        # Validaciones idénticas
-        if not channel_id.startswith("-100"):
-            return False, "❌ ID de canal inválido (debe empezar con -100)"
-
-        try:
-            chat = await self.bot.get_chat(channel_id)
-        except TelegramBadRequest:
-            return False, "❌ Canal no encontrado. Verifica el ID."
-        except TelegramForbiddenError:
-            return False, "❌ Bot no tiene acceso al canal. Agrégalo como administrador."
-        except Exception as e:
-            logger.error(f"Error al obtener chat {channel_id}: {e}")
-            return False, f"❌ Error: {str(e)}"
-
-        is_valid, perm_message = await self.verify_bot_permissions(channel_id)
-        if not is_valid:
-            return False, perm_message
-
-        # Guardar en configuración
-        config = await self.get_bot_config()
-        config.free_channel_id = channel_id
-
-        await self.session.commit()
-
-        logger.info(f"✅ Canal Free configurado: {channel_id} ({chat.title})")
-
-        return True, f"✅ Canal Free configurado: <b>{chat.title}</b>"
+        return await self._setup_channel(channel_id, 'free')
 
     async def verify_bot_permissions(self, channel_id: str) -> Tuple[bool, str]:
         """
