@@ -6,7 +6,8 @@ from bot.database.models import (
     BotConfig,
     InvitationToken,
     VIPSubscriber,
-    FreeChannelRequest
+    FreeChannelRequest,
+    User
 )
 from bot.database.engine import (
     init_db,
@@ -15,14 +16,63 @@ from bot.database.engine import (
     get_engine,
     get_session_factory
 )
+from bot.database.narrative_models import (
+    UserNarrativeState,
+    UserDecision,
+    UserBehaviorPattern,
+    NarrativeConsequence,
+    AppliedConsequence,
+    CharacterRelationship
+)
+from bot.database.scene_models import (
+    NarrativeChapter,
+    NarrativeScene,
+    SceneDialogue,
+    DialogueOption
+)
+from bot.database.enums import (
+    NarrativeLevel,
+    DecisionType,
+    PatternType,
+    ArchetypeType,
+    ConsequenceType,
+    RelationshipState,
+    UserRole
+)
 
 __all__ = [
-    # Models
+    # Base
     "Base",
+
+    # Core Models
     "BotConfig",
     "InvitationToken",
     "VIPSubscriber",
     "FreeChannelRequest",
+    "User",
+
+    # Narrative Models
+    "UserNarrativeState",
+    "UserDecision",
+    "UserBehaviorPattern",
+    "NarrativeConsequence",
+    "AppliedConsequence",
+    "CharacterRelationship",
+
+    # Scene Models
+    "NarrativeChapter",
+    "NarrativeScene",
+    "SceneDialogue",
+    "DialogueOption",
+
+    # Enums
+    "NarrativeLevel",
+    "DecisionType",
+    "PatternType",
+    "ArchetypeType",
+    "ConsequenceType",
+    "RelationshipState",
+    "UserRole",
 
     # Engine & Sessions
     "init_db",
