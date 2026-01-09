@@ -216,6 +216,7 @@ async def handle_next_dialogue(
     fsm_data = await state.get_data()
     scene_id = fsm_data.get("current_scene")
     dialogue_index = fsm_data.get("dialogue_index", 0)
+    next_scene = fsm_data.get("next_scene")
 
     if not scene_id:
         return
@@ -231,30 +232,45 @@ async def handle_next_dialogue(
     next_index = dialogue_index + 1
 
     if next_index < len(dialogues):
+        # Hay más diálogos en la escena actual
+        is_last = (next_index == len(dialogues) - 1)
+
+        # Si es el último y hay next_scene, agregarlo al diálogo
+        if is_last and next_scene:
+            dialogues[next_index]["next_scene"] = next_scene
+
         await state.update_data(dialogue_index=next_index)
         await _send_single_dialogue(
             callback.message,
             dialogues[next_index],
             state,
-            is_last=(next_index == len(dialogues) - 1)
+            is_last=is_last
         )
     else:
         # Fin de la escena, buscar siguiente
         scene = await delivery.get_scene(scene_id)
         if scene and scene.next_scene_default:
-            next_scene = await delivery.get_scene(scene.next_scene_default)
-            if next_scene:
+            next_scene_obj = await delivery.get_scene(scene.next_scene_default)
+            if next_scene_obj:
                 await state.update_data(
-                    current_scene=next_scene.scene_id,
+                    current_scene=next_scene_obj.scene_id,
                     dialogue_index=0
                 )
-                await narrative_service.set_current_scene(user_id, next_scene.scene_id)
+                await narrative_service.set_current_scene(user_id, next_scene_obj.scene_id)
                 next_dialogues = await delivery.get_scene_dialogues(
-                    next_scene.scene_id, user_state
+                    next_scene_obj.scene_id, user_state
                 )
                 await _send_scene_dialogues(
                     callback.message, next_dialogues, state, session
                 )
+        else:
+            # No hay siguiente escena, fin del nivel
+            await callback.message.edit_text(
+                "<b>Fin del nivel</b>\n\n"
+                "Has completado el primer capítulo de la historia.\n\n"
+                "Pronto habrá más contenido disponible.",
+                parse_mode="HTML"
+            )
 
     await session.commit()
 
@@ -572,11 +588,23 @@ async def _send_scene_dialogues(
     if not dialogues:
         return
 
+    # Obtener scene_id y next_scene desde el primer diálogo
+    scene_id = dialogues[0].get("scene_id", "unknown")
+
+    # Buscar next_scene en la escena
+    delivery = NarrativeDeliveryService(session)
+    scene = await delivery.get_scene(scene_id)
+    next_scene = scene.next_scene_default if scene else None
+
     # Enviar primer diálogo
     first_dialogue = dialogues[0]
     is_last = len(dialogues) == 1
 
-    await state.update_data(dialogue_index=0)
+    # Agregar next_scene al último diálogo
+    if is_last and next_scene:
+        first_dialogue["next_scene"] = next_scene
+
+    await state.update_data(dialogue_index=0, next_scene=next_scene)
     await _send_single_dialogue(message, first_dialogue, state, is_last)
 
 
@@ -605,6 +633,7 @@ async def _send_single_dialogue(
     typing_delay = dialogue.get("typing_delay", 0)
     delivery_style = dialogue.get("delivery_style", "normal")
     scene_id = dialogue.get("scene_id", "unknown")
+    next_scene = dialogue.get("next_scene")
 
     # Formatear texto según personaje y estilo
     formatted_text = _format_dialogue_text(text, character, delivery_style)
@@ -641,6 +670,15 @@ async def _send_single_dialogue(
             choice_presented_at=datetime.utcnow().isoformat(),
             current_dialogue=dialogue.get("id")
         )
+
+    elif is_last and next_scene:
+        # Es el último diálogo pero hay siguiente escena
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(
+                text="Continuar...",
+                callback_data="narrative:next"
+            )]
+        ])
 
     elif not is_last:
         # No es el último, mostrar botón continuar
