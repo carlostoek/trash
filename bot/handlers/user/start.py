@@ -289,19 +289,21 @@ async def _send_welcome_message(
 
     # Usuario no es VIP: mostrar opciones
     keyboard = create_inline_keyboard([
+        [{"text": "✨ Iniciar Experiencia", "callback_data": "narrative:start"}],
         [{"text": "🎟️ Canjear Token VIP", "callback_data": "user:redeem_token"}],
     ])
 
     await message.answer(
         f"👋 Hola <b>{user_name}</b>!\n\n"
-        f"Bienvenido al bot de acceso a canales.\n\n"
+        f"Bienvenido a <b>Los Kinkys</b>.\n\n"
+        f"<i>Un lugar donde los secretos tienen valor y las conexiones auténticas "
+        f"son más raras que el oro...</i>\n\n"
         f"<b>Opciones disponibles:</b>\n\n"
+        f"✨ <b>Iniciar Experiencia</b>\n"
+        f"Comienza tu viaje narrativo y conoce a los habitantes de este lugar.\n\n"
         f"🎟️ <b>Canjear Token VIP</b>\n"
-        f"Si tienes un token de invitación, canjéalo para acceso VIP.\n\n"
-        f"📺 <b>Acceso al Canal Free</b>\n"
-        f"Para acceder al canal gratuito, ve directamente al canal y solicita unirte. "
-        f"Serás aprobado automáticamente después del tiempo de espera configurado.\n\n"
-        f"👉 Canjea tu token VIP:",
+        f"Si tienes un token de invitación, accede al contenido exclusivo.\n\n"
+        f"👉 <b>¿Qué deseas hacer?</b>",
         reply_markup=keyboard,
         parse_mode="HTML"
     )
