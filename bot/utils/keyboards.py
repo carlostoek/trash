@@ -161,3 +161,50 @@ def config_menu_keyboard() -> InlineKeyboardMarkup:
         [{"text": "⚙️ Configurar Reacciones Free", "callback_data": "config:reactions:free"}],
         [{"text": "🔙 Volver al Menú Principal", "callback_data": "admin:main"}],
     ])
+
+
+def create_narrative_keyboard(
+    available_choices,
+    current_fragment,
+    can_reread: bool = True
+) -> InlineKeyboardMarkup:
+    """
+    Crea un keyboard dinámico para opciones narrativas.
+
+    Args:
+        available_choices: Lista de StoryChoice disponibles
+        current_fragment: StoryFragment actual (para verificar si es starting)
+        can_reread: Si mostrar botón "Releer" (default: True)
+
+    Returns:
+        InlineKeyboardMarkup con opciones narrativas
+
+    Example:
+        >>> choices = [choice1, choice2, choice3]
+        >>> fragment = StoryFragment(is_starting_fragment=False)
+        >>> keyboard = create_narrative_keyboard(choices, fragment)
+    """
+    buttons = []
+
+    # Agregar opciones de historia en orden
+    for choice in available_choices:
+        button_text = choice.choice_text
+        if choice.choice_emoji:
+            button_text = f"{choice.choice_emoji} {button_text}"
+
+        buttons.append([
+            {"text": button_text, "callback_data": f"narrative:choice:{choice.choice_id}"}
+        ])
+
+    # Agregar botón de releer si no es fragmento inicial
+    if can_reread and not current_fragment.is_starting_fragment:
+        buttons.append([
+            {"text": "📖 Releer Fragmento", "callback_data": "narrative:reread"}
+        ])
+
+    # Agregar botón de estado
+    buttons.append([
+        {"text": "📊 Mi Progreso", "callback_data": "narrative:status"}
+    ])
+
+    return create_inline_keyboard(buttons)
