@@ -701,7 +701,8 @@ class NarrativeService:
     async def advance_to_next_fragment(
         self,
         user_id: int,
-        choice_id: str
+        choice_id: str,
+        choice_time_seconds: int = 0
     ) -> Tuple[bool, str, Optional[StoryFragment], Dict]:
         """
         Avanza la historia del usuario basado en su elección.
@@ -717,6 +718,7 @@ class NarrativeService:
         Args:
             user_id: ID del usuario
             choice_id: ID de la elección (ej: "L1_INTRO_A")
+            choice_time_seconds: Tiempo que tomó el usuario en elegir (para arquetipo)
 
         Returns:
             Tuple (success, message, next_fragment, details)
@@ -742,7 +744,10 @@ class NarrativeService:
         user_choice = UserChoice(
             user_id=user_id,
             choice_id=choice_id,
-            fragment_id=choice.fragment_id
+            fragment_id=choice.fragment_id,
+            choice_time_seconds=choice_time_seconds,
+            made_at=datetime.now(timezone.utc),
+            user_level_at_choice=progress.current_narrative_level
         )
         self.session.add(user_choice)
 
@@ -1022,7 +1027,8 @@ class StoryEngine:
         # 2. Avanzar historia
         success, message, next_fragment, consequences = await self.narrative.advance_to_next_fragment(
             user_id=user_id,
-            choice_id=choice_id
+            choice_id=choice_id,
+            choice_time_seconds=choice_time_seconds
         )
 
         if not success:
