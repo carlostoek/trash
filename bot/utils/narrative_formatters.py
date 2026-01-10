@@ -64,7 +64,7 @@ def format_narrative_message(
     character_emoji = CHARACTER_EMOJIS.get(fragment.speaker, CHARACTER_EMOJIS["UNKNOWN"])
 
     # 2. Obtener contenido con variante de arquetipo si existe
-    content = fragment.content
+    content = fragment.content_text or ""
 
     if archetype and fragment.content_variants:
         # Buscar variante específica del arquetipo
@@ -83,10 +83,10 @@ def format_narrative_message(
     header_parts = [character_emoji]
 
     # Añadir indicador de emoción si existe
-    if fragment.emotion:
-        emotion_emoji = EMOTION_INDICATORS.get(fragment.emotion.lower(), "")
+    if fragment.speaker_emotion:
+        emotion_emoji = EMOTION_INDICATORS.get(fragment.speaker_emotion.lower(), "")
         if emotion_emoji:
-            header_parts.append(f"<i>({fragment.emotion.lower()})</i>")
+            header_parts.append(f"<i>({fragment.speaker_emotion.lower()})</i>")
 
     # 4. Construir mensaje completo
     header = " ".join(header_parts) if len(header_parts) > 1 else character_emoji

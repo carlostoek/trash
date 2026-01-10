@@ -100,8 +100,8 @@ def mock_starting_fragment():
     fragment.fragment_id = "L1_INTRO_001"
     fragment.title = "El Comienzo"
     fragment.speaker = "NARRATOR"
-    fragment.emotion = "calm"
-    fragment.content = "La historia comienza..."
+    fragment.speaker_emotion = "calm"
+    fragment.content_text = "La historia comienza..."
     fragment.content_variants = {}
     fragment.media_type = None
     fragment.media_file_id = None
@@ -121,7 +121,6 @@ def mock_choices(mock_starting_fragment):
     choice1.choice_id = "L1_INTRO_A"
     choice1.choice_text = "Seguir adelante"
     choice1.choice_emoji = "👣"
-    choice1.text_variants = {}
     choice1.fragment_id = mock_starting_fragment.id
     choice1.target_fragment_id = 2
     choice1.sort_order = 1
@@ -137,7 +136,6 @@ def mock_choices(mock_starting_fragment):
     choice2.choice_id = "L1_INTRO_B"
     choice2.choice_text = "Observar detenidamente"
     choice2.choice_emoji = "🔍"
-    choice2.text_variants = {}
     choice2.fragment_id = mock_starting_fragment.id
     choice2.target_fragment_id = 3
     choice2.sort_order = 2
@@ -453,8 +451,8 @@ def test_format_narrative_message_with_emotion():
     """Test formateo con emoción."""
     fragment = Mock(spec=StoryFragment)
     fragment.speaker = "DIANA"
-    fragment.emotion = "happy"
-    fragment.content = "Hello!"
+    fragment.speaker_emotion = "mysterious"
+    fragment.content_text = "Hello!"
     fragment.content_variants = {}
     fragment.title = "Meeting"
     fragment.narrative_level = 1
@@ -464,15 +462,15 @@ def test_format_narrative_message_with_emotion():
     result = format_narrative_message(fragment)
 
     assert "🌸" in result
-    assert "(happy)" in result.lower()
+    assert "(mysterious)" in result.lower()
 
 
 def test_format_narrative_message_vip_level():
     """Test formateo de nivel VIP."""
     fragment = Mock(spec=StoryFragment)
     fragment.speaker = "NARRATOR"
-    fragment.emotion = None
-    fragment.content = "Secret content"
+    fragment.speaker_emotion = None
+    fragment.content_text = "Secret content"
     fragment.content_variants = {}
     fragment.title = "The Secret"
     fragment.narrative_level = 4
@@ -490,7 +488,6 @@ def test_format_choice_button_text_basic():
     choice = Mock(spec=StoryChoice)
     choice.choice_text = "Follow her"
     choice.choice_emoji = "👣"
-    choice.text_variants = {}
 
     result = format_choice_button_text(choice)
 
@@ -502,7 +499,6 @@ def test_format_choice_button_text_no_emoji():
     choice = Mock(spec=StoryChoice)
     choice.choice_text = "Wait"
     choice.choice_emoji = None
-    choice.text_variants = {}
 
     result = format_choice_button_text(choice)
 

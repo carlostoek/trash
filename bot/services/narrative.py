@@ -583,9 +583,10 @@ class NarrativeService:
                 StoryFragment.is_starting_fragment == True,
                 StoryFragment.active == True
             )
-        )
+        ).order_by(StoryFragment.sort_order)
         result = await self.session.execute(stmt)
-        return result.scalar_one_or_none()
+        # Use first() for robustness - if multiple starting fragments exist, take first by sort_order
+        return result.scalars().first()
 
     async def get_fragment(
         self,

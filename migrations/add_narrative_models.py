@@ -53,29 +53,25 @@ NARRATIVE_MODELS = [
 ]
 
 
-def _get_existing_tables() -> set[str]:
+async def _get_existing_tables() -> set[str]:
     """
     Get set of existing table names in the database.
+
+    Uses async engine inspection with proper async/await pattern.
 
     Returns:
         Set of table names that already exist
     """
     engine = get_engine()
-    inspector = inspect(engine)
 
-    # For async engine, we need to run sync inspection
-    import asyncio
+    async with engine.connect() as conn:
+        # Use run_sync to run synchronous inspection on async connection
+        def _get_tables_inspect(sync_conn) -> set[str]:
+            """Synchronous inspection function to run inside run_sync."""
+            insp = inspect(sync_conn)
+            return set(insp.get_table_names())
 
-    async def get_tables():
-        async with engine.connect() as conn:
-            # Use run_sync to run synchronous inspection
-            def _get_tables_inspect(sync_conn):
-                insp = inspect(sync_conn)
-                return set(insp.get_table_names())
-
-            return await conn.run_sync(_get_tables_inspect)
-
-    return asyncio.run(get_tables())
+        return await conn.run_sync(_get_tables_inspect)
 
 
 async def upgrade() -> None:
@@ -94,7 +90,7 @@ async def upgrade() -> None:
     logger.info("🔧 Starting narrative models migration (upgrade)...")
 
     # Get existing tables
-    existing_tables = _get_existing_tables()
+    existing_tables = await _get_existing_tables()
 
     # Determine which tables need to be created
     tables_to_create = []
@@ -126,7 +122,7 @@ async def upgrade() -> None:
 
     # Verify creation
     logger.info("🔍 Verifying table creation...")
-    all_existing = _get_existing_tables()
+    all_existing = await _get_existing_tables()
 
     created_count = 0
     for model in NARRATIVE_MODELS:
@@ -159,7 +155,7 @@ async def downgrade() -> None:
     logger.warning("⚠️  This will DELETE all narrative data!")
 
     # Get existing tables
-    existing_tables = _get_existing_tables()
+    existing_tables = await _get_existing_tables()
 
     # Determine which tables need to be dropped
     tables_to_drop = []
@@ -191,7 +187,7 @@ async def downgrade() -> None:
 
     # Verify deletion
     logger.info("🔍 Verifying table deletion...")
-    all_existing = _get_existing_tables()
+    all_existing = await _get_existing_tables()
 
     dropped_count = 0
     for model in NARRATIVE_MODELS:
@@ -217,7 +213,7 @@ async def verify_migration() -> dict[str, bool]:
     logger.info("🔍 Verifying narrative models migration...")
 
     engine = get_engine()
-    existing_tables = _get_existing_tables()
+    existing_tables = await _get_existing_tables()
 
     results = {}
 
