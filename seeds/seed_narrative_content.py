@@ -190,12 +190,12 @@ LEVEL_1_CHOICES = [
     },
     {
         "choice_id": "L1_INTRO_B",
-        "fragment_id_ref": "L1_INTRO_002",  # From this fragment
-        "target_fragment_id_ref": "L1_RESPONSE_QUICK",  # To this fragment (default)
+        "fragment_id_ref": "L1_INTRO_001",  # From L1_INTRO_001 (Diana's welcome)
+        "target_fragment_id_ref": "L1_INTRO_002",  # To L1_INTRO_002 (Lucien's challenge)
         "choice_text": "✨ Entendido",
         "choice_description": "Aceptar el desafío de Lucien",
         "choice_emoji": "✨",
-        "sort_order": 1,
+        "sort_order": 2,
         "consequences": {
             "flags_set": ["accepted_lucien_challenge"],
             "besitos_reward": 10
