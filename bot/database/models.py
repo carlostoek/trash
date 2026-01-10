@@ -21,6 +21,14 @@ Tablas Narrativa:
 - character_relationships: Relaciones con personajes (Lucien, Diana)
 - desire_profiles: Perfiles de Deseo (Level 3 - 7 preguntas psicológicas)
 - channel_interactions: Tracking de observaciones en canales (Level 2)
+
+Tablas Cascade Configuration:
+- cascade_dependencies: Relaciones de dependencia explícitas
+- cascade_operations_log: Log de auditoría de operaciones
+- cascade_config_presets: Plantillas de configuración predefinidas
+
+Para importar modelos de cascade:
+    from bot.database.cascade_models import CascadeDependency, CascadeOperation, CascadeConfigPreset
 """
 import logging
 from datetime import datetime, timezone
@@ -1055,7 +1063,7 @@ class ChannelInteraction(Base):
     time_spent_seconds = Column(Integer, default=0, nullable=False)  # Tiempo en el post
 
     # Pistas descubiertas (JSON)
-    clues_discovered = Column(JSON, default=list)  # ["pista_1", "pista_2", ...]
+    clues_discovered = Column(JSON, default=lambda: [])  # ["pista_1", "pista_2", ...]
     # Las pistas son detalles sutiles en el contenido del canal
 
     # Observación scoring
