@@ -37,7 +37,12 @@ from bot.utils.narrative_formatters import (
     format_unlock_message,
     format_consequences_message,
     format_story_status,
-    format_multimedia_fragment
+    format_multimedia_fragment,
+    format_progress_indicator,
+    format_dynamic_voice,
+    format_milestone_celebration,
+    format_choice_feedback,
+    format_rewards_summary
 )
 from bot.utils.keyboards import create_narrative_keyboard
 
@@ -105,13 +110,20 @@ async def cmd_story(message: Message, session: AsyncSession):
         current_fragment: StoryFragment = story_state["current_fragment"]
         available_choices: list[StoryChoice] = story_state["available_choices"]
         archetype: ArchetypeProfile = story_state["archetype"]
+        user_progress: UserNarrativeProgress = story_state["user_progress"]
+        relationships: Dict[str, CharacterRelationship] = story_state.get("relationships", {})
+
+        # FASE 2: Obtener relación con Diana para voz dinámica
+        relationship_diana = relationships.get("DIANA")
 
         # Enviar fragmento actual
         await _send_fragment_to_user(
             message=message,
             fragment=current_fragment,
             choices=available_choices,
-            archetype=archetype
+            archetype=archetype,
+            user_progress=user_progress,
+            relationship_diana=relationship_diana
         )
 
         # Entrar en estado de lectura (si FSM está disponible)
@@ -229,13 +241,20 @@ async def callback_narrative_choice(callback: CallbackQuery, session: AsyncSessi
         # Extraer información del siguiente estado
         available_choices: list[StoryChoice] = next_state["available_choices"]
         archetype: ArchetypeProfile = next_state["archetype"]
+        user_progress: UserNarrativeProgress = next_state["user_progress"]
+        relationships: Dict[str, CharacterRelationship] = next_state.get("relationships", {})
+
+        # FASE 2: Obtener relación con Diana para voz dinámica
+        relationship_diana = relationships.get("DIANA")
 
         # Enviar siguiente fragmento
         await _send_fragment_to_user(
             message=callback.message,
             fragment=next_fragment,
             choices=available_choices,
-            archetype=archetype
+            archetype=archetype,
+            user_progress=user_progress,
+            relationship_diana=relationship_diana
         )
 
         # Actualizar estado FSM (si está disponible)
@@ -297,6 +316,11 @@ async def callback_narrative_reread(callback: CallbackQuery, session: AsyncSessi
         current_fragment: StoryFragment = story_state["current_fragment"]
         available_choices: list[StoryChoice] = story_state["available_choices"]
         archetype: ArchetypeProfile = story_state["archetype"]
+        user_progress: UserNarrativeProgress = story_state["user_progress"]
+        relationships: Dict[str, CharacterRelationship] = story_state.get("relationships", {})
+
+        # FASE 2: Obtener relación con Diana para voz dinámica
+        relationship_diana = relationships.get("DIANA")
 
         # Responder al callback
         await callback.answer("📖 Fragmento mostrado nuevamente")
@@ -307,6 +331,8 @@ async def callback_narrative_reread(callback: CallbackQuery, session: AsyncSessi
             fragment=current_fragment,
             choices=available_choices,
             archetype=archetype,
+            user_progress=user_progress,
+            relationship_diana=relationship_diana,
             is_reread=True
         )
 
@@ -387,20 +413,42 @@ async def _send_fragment_to_user(
     fragment: StoryFragment,
     choices: list[StoryChoice],
     archetype: Optional[ArchetypeProfile] = None,
+    user_progress: Optional[UserNarrativeProgress] = None,
+    relationship_diana: Optional[CharacterRelationship] = None,
     is_reread: bool = False
 ) -> None:
     """
     Envía un fragmento narrativo al usuario con formato y keyboard.
+
+    FASE 2 ENHANCED: Ahora incluye:
+    - Indicador de progreso visual incrustado
+    - Voz dinámica según relación con Diana
+    - Formato mejorado con recompensas visuales
 
     Args:
         message: Mensaje de Telegram (para responder)
         fragment: StoryFragment a enviar
         choices: Lista de StoryChoice disponibles
         archetype: ArchetypeProfile del usuario (opcional)
+        user_progress: UserNarrativeProgress del usuario (opcional)
+        relationship_diana: CharacterRelationship con Diana (opcional)
         is_reread: Si es una relectura (para logging)
     """
-    # Formatear mensaje narrativo
-    formatted_message = format_narrative_message(fragment, archetype)
+    # FASE 2: Usar voz dinámica si hay relación disponible
+    if relationship_diana and fragment.speaker == "DIANA":
+        formatted_message = format_dynamic_voice(
+            fragment,
+            user_progress or UserNarrativeProgress(),
+            relationship_diana,
+            archetype
+        )
+    else:
+        formatted_message = format_narrative_message(fragment, archetype)
+
+    # FASE 2: Añadir indicador de progreso si hay progreso disponible
+    if user_progress:
+        progress_indicator = format_progress_indicator(fragment, user_progress)
+        formatted_message += progress_indicator
 
     # Crear keyboard con opciones
     keyboard = create_narrative_keyboard(
