@@ -19,9 +19,11 @@ Tablas Narrativa:
 - narrative_flags: Flags narrativos persistentes
 - archetype_profiles: Perfiles de detección de personalidad
 - character_relationships: Relaciones con personajes (Lucien, Diana)
+- desire_profiles: Perfiles de Deseo (Level 3 - 7 preguntas psicológicas)
+- channel_interactions: Tracking de observaciones en canales (Level 2)
 """
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, List
 
 from sqlalchemy import (
@@ -737,8 +739,8 @@ class NarrativeFlag(Base):
     expires_at = Column(DateTime, nullable=True)
 
     # Timestamps
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda ctx: datetime.now(timezone.utc), nullable=False)
+    updated_at = Column(DateTime, default=lambda ctx: datetime.now(timezone.utc), onupdate=lambda ctx: datetime.now(timezone.utc))
 
     # Índice compuesto único
     __table_args__ = (
@@ -750,7 +752,7 @@ class NarrativeFlag(Base):
         """¿Está el flag activo (no expirado)?"""
         if self.expires_at is None:
             return True  # Flag permanente
-        return datetime.utcnow() < self.expires_at
+        return datetime.now(timezone.utc) < self.expires_at
 
     def __repr__(self):
         status = "EXPIRED" if not self.is_active else "ACTIVE"
@@ -927,3 +929,156 @@ class NarrativeUnlock(Base):
 
     def __repr__(self):
         return f"<NarrativeUnlock(user={self.user_id}, type={self.unlock_type}, id={self.unlock_id})>"
+
+
+class DesireProfile(Base):
+    """
+    Perfil de Deseo del usuario - Nivel 3.
+
+    Sistema de 7 preguntas psicológicas para detectar arquetipo:
+    1. ¿Qué buscas en una conexión? (Explorer/Intimate)
+    2. ¿Prefieres lo inesperado o lo familiar? (Novelty/Comfort)
+    3. ¿Qué tan rápido te abres? (Direct/Patient)
+    4. ¿Mente o corazón? (Analytical/Romantic)
+    5. ¿Luchas o te dejas llevar? (Persistent/Yield)
+    6. ¿Secretos o transparencia? (Private/Open)
+    7. ¿Pasión o plenitud? (Intensity/Peace)
+
+    Este perfil genera:
+    - Detección de arquetipo primario
+    - Invitación VIP personalizada
+    - Contenido adaptativo en niveles 4-6
+    """
+    __tablename__ = "desire_profiles"
+
+    # Primary Key
+    id = Column(Integer, primary_key=True, autoincrement=True)
+
+    # Usuario (1:1)
+    user_id = Column(BigInteger, ForeignKey("users.user_id"), unique=True, nullable=False, index=True)
+    user = relationship("User", uselist=False, lazy="selectin")
+
+    # Respuestas a las 7 preguntas
+    # P1: ¿Qué buscas en una conexión?
+    question_1_answer = Column(String(50), nullable=True)  # "explorer" / "intimate"
+
+    # P2: ¿Prefieres lo inesperado o lo familiar?
+    question_2_answer = Column(String(50), nullable=True)  # "novelty" / "comfort"
+
+    # P3: ¿Qué tan rápido te abres?
+    question_3_answer = Column(String(50), nullable=True)  # "direct" / "patient"
+
+    # P4: ¿Mente o corazón?
+    question_4_answer = Column(String(50), nullable=True)  # "analytical" / "romantic"
+
+    # P5: ¿Luchas o te dejas llevar?
+    question_5_answer = Column(String(50), nullable=True)  # "persistent" / "yield"
+
+    # P6: ¿Secretos o transparencia?
+    question_6_answer = Column(String(50), nullable=True)  # "private" / "open"
+
+    # P7: ¿Pasión o plenitud?
+    question_7_answer = Column(String(50), nullable=True)  # "intensity" / "peace"
+
+    # Arquetipo detectado (calculado)
+    archetype_prediction = Column(String(50), nullable=True)  # "ROMANTIC", "EXPLORER", etc.
+    archetype_confidence = Column(Integer, default=0, nullable=False)  # 0-100
+
+    # Estado de completitud
+    is_complete = Column(Boolean, default=False, nullable=False)  # True cuando respondió las 7
+    questions_answered = Column(Integer, default=0, nullable=False)  # 0-7
+
+    # Timestamps
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    completed_at = Column(DateTime, nullable=True)
+    last_answered_at = Column(DateTime, nullable=True)
+
+    # Índices
+    __table_args__ = (
+        Index('idx_desire_complete', 'is_complete'),
+        Index('idx_desire_archetype', 'archetype_prediction'),
+    )
+
+    @property
+    def completion_percentage(self) -> int:
+        """Porcentaje de preguntas respondidas (0-100)"""
+        return int((self.questions_answered / 7) * 100)
+
+    @property
+    def next_question_number(self) -> int:
+        """Número de la siguiente pregunta a responder (1-8, 8 = completado)"""
+        return self.questions_answered + 1 if self.questions_answered < 7 else 8
+
+    def __repr__(self):
+        status = "COMPLETE" if self.is_complete else f"{self.questions_answered}/7"
+        return (
+            f"<DesireProfile(user={self.user_id}, "
+            f"archetype={self.archetype_prediction}, "
+            f"status={status})>"
+        )
+
+
+class ChannelInteraction(Base):
+    """
+    Registro de interacciones de usuario en canales - Sistema de Observación (Level 2).
+
+    Utilizado para rastrear:
+    - Posts vistos por el usuario en el canal
+    - Tiempo dedicado en el canal
+    - Reacciones a contenido
+    - Pistas descubiertas
+
+    El score de observación determina:
+    - Si el usuario pasó la prueba de Level 2
+    - Qué fragmentos se desbloquean (success vs partial)
+    - Recompensas y badges obtenidos
+    """
+    __tablename__ = "channel_interactions"
+
+    # Primary Key
+    id = Column(Integer, primary_key=True, autoincrement=True)
+
+    # Usuario
+    user_id = Column(BigInteger, ForeignKey("users.user_id"), nullable=False, index=True)
+    user = relationship("User", uselist=False, lazy="selectin")
+
+    # Post interactuado
+    post_id = Column(BigInteger, nullable=False, index=True)  # ID del mensaje en Telegram
+    channel_id = Column(BigInteger, nullable=False, index=True)  # ID del canal
+    fragment_id_ref = Column(String(50), nullable=True)  # Referencia a fragmento narrativo (si aplica)
+
+    # Tipo de interacción
+    interaction_type = Column(String(20), nullable=False)  # "view", "reaction", "comment", "forward"
+
+    # Datos de la interacción
+    interaction_timestamp = Column(DateTime, default=datetime.utcnow, nullable=False)
+    time_spent_seconds = Column(Integer, default=0, nullable=False)  # Tiempo en el post
+
+    # Pistas descubiertas (JSON)
+    clues_discovered = Column(JSON, default=list)  # ["pista_1", "pista_2", ...]
+    # Las pistas son detalles sutiles en el contenido del canal
+
+    # Observación scoring
+    observation_score = Column(Integer, default=0, nullable=False)  # Puntos por esta interacción
+    # View: +1 punto
+    # Time > 30s: +2 puntos
+    # Reacción: +2 puntos
+    # Pista descubierta: +5 puntos
+
+    # Metadatos
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    # Índices
+    __table_args__ = (
+        Index('idx_channel_user_post', 'user_id', 'post_id'),
+        Index('idx_channel_user_score', 'user_id', 'observation_score'),
+        Index('idx_channel_timestamp', 'interaction_timestamp'),
+    )
+
+    def __repr__(self):
+        return (
+            f"<ChannelInteraction(user={self.user_id}, "
+            f"post={self.post_id}, "
+            f"type={self.interaction_type}, "
+            f"score={self.observation_score})>"
+        )

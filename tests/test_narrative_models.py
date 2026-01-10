@@ -12,7 +12,7 @@ Total: 18+ tests
 import pytest
 import time
 import random
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, Mock
 
 from sqlalchemy import select
@@ -221,7 +221,7 @@ class TestNarrativeFlagModel:
                 user_id=user1_id,
                 flag_key="temporary_buff",
                 flag_value="active",
-                expires_at=datetime.utcnow() - timedelta(hours=1)  # Use naive datetime (model uses utcnow())
+                expires_at=datetime.now(timezone.utc) - timedelta(hours=1)  # Use aware datetime (model uses timezone-aware)
             )
 
             session.add(expired_flag)
@@ -238,7 +238,7 @@ class TestNarrativeFlagModel:
                 user_id=user2_id,
                 flag_key="active_buff",
                 flag_value="active",
-                expires_at=datetime.utcnow() + timedelta(hours=1)  # Use naive datetime
+                expires_at=datetime.now(timezone.utc) + timedelta(hours=1)  # Use aware datetime
             )
 
             session.add(active_flag)
@@ -305,7 +305,7 @@ class TestCharacterRelationshipModel:
 
             for score, expected_status in test_cases:
                 relationship = CharacterRelationship(
-                    user_id=get_unique_user_id(),
+                    user_id=user.user_id,
                     character_name=f"TEST_{score}",
                     relationship_score=score
                 )

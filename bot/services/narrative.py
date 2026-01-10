@@ -5,6 +5,7 @@ Este módulo implementa:
 - NarrativeService: Gestión de fragmentos y progreso narrativo
 - FlagService: Gestión de flags narrativos persistentes
 - ArchetypeService: Detección de arquetipos de usuario
+- DesireProfileService: Perfiles de Deseo (Level 3)
 - StoryEngine: Coordinador de todos los servicios narrativos
 """
 import logging
@@ -24,6 +25,7 @@ from bot.database.models import (
     NarrativeFlag,
     ArchetypeProfile,
     CharacterRelationship,
+    DesireProfile,
     User
 )
 
@@ -539,6 +541,345 @@ class CharacterRelationshipService:
 
 
 # ==============================================================================
+# DESIRE PROFILE SERVICE - Perfiles de Deseo (Level 3)
+# ==============================================================================
+
+class DesireProfileService:
+    """
+    Servicio de gestión de Perfiles de Deseo (Level 3).
+
+    Sistema de 7 preguntas psicológicas para detectar arquetipo:
+    1. ¿Qué buscas en una conexión? (Explorer/Intimate)
+    2. ¿Prefieres lo inesperado o lo familiar? (Novelty/Comfort)
+    3. ¿Qué tan rápido te abres? (Direct/Patient)
+    4. ¿Mente o corazón? (Analytical/Romantic)
+    5. ¿Luchas o te dejas llevar? (Persistent/Yield)
+    6. ¿Secretos o transparencia? (Private/Open)
+    7. ¿Pasión o plenitud? (Intensity/Peace)
+    """
+
+    # Mapeo de respuestas a arquetipos
+    ANSWER_TO_ARCHETYPE = {
+        # Pregunta 1: ¿Qué buscas en una conexión?
+        "explorer": "EXPLORER",
+        "intimate": "ROMANTIC",
+
+        # Pregunta 2: ¿Prefieres lo inesperado o lo familiar?
+        "novelty": "EXPLORER",
+        "comfort": "PATIENT",
+
+        # Pregunta 3: ¿Qué tan rápido te abres?
+        "direct": "DIRECT",
+        "patient": "PATIENT",
+
+        # Pregunta 4: ¿Mente o corazón?
+        "analytical": "ANALYTICAL",
+        "romantic": "ROMANTIC",
+
+        # Pregunta 5: ¿Luchas o te dejas llevar?
+        "persistent": "PERSISTENT",
+        "yield": "PATIENT",
+
+        # Pregunta 6: ¿Secretos o transparencia?
+        "private": "ANALYTICAL",
+        "open": "ROMANTIC",
+
+        # Pregunta 7: ¿Pasión o plenitud?
+        "intensity": "ROMANTIC",
+        "peace": "PATIENT"
+    }
+
+    def __init__(self, session: AsyncSession):
+        self.session = session
+
+    async def get_or_create_profile(
+        self,
+        user_id: int
+    ) -> DesireProfile:
+        """
+        Obtiene o crea el perfil de deseo del usuario.
+
+        Args:
+            user_id: ID del usuario
+
+        Returns:
+            DesireProfile
+        """
+        stmt = select(DesireProfile).where(
+            DesireProfile.user_id == user_id
+        )
+        result = await self.session.execute(stmt)
+        profile = result.scalar_one_or_none()
+
+        if not profile:
+            profile = DesireProfile(
+                user_id=user_id,
+                questions_answered=0,
+                is_complete=False
+            )
+            self.session.add(profile)
+            await self.session.commit()
+            await self.session.refresh(profile)
+
+            logger.info(f"Created desire profile for user {user_id}")
+
+        return profile
+
+    async def answer_question(
+        self,
+        user_id: int,
+        question_number: int,
+        answer: str
+    ) -> Tuple[bool, str, DesireProfile]:
+        """
+        Registra la respuesta a una pregunta del Perfil de Deseo.
+
+        Args:
+            user_id: ID del usuario
+            question_number: Número de pregunta (1-7)
+            answer: Respuesta del usuario
+
+        Returns:
+            Tuple (success, message, profile)
+        """
+        if not 1 <= question_number <= 7:
+            return False, "Número de pregunta inválido", None
+
+        profile = await self.get_or_create_profile(user_id)
+
+        # Verificar si ya respondió esta pregunta
+        if question_number <= profile.questions_answered:
+            return False, f"Pregunta {question_number} ya fue respondida", profile
+
+        # Guardar respuesta
+        answer_field = f"question_{question_number}_answer"
+        setattr(profile, answer_field, answer.lower())
+
+        profile.questions_answered += 1
+        profile.last_answered_at = datetime.now(timezone.utc)
+
+        # Verificar si completó todas las preguntas
+        if profile.questions_answered >= 7:
+            profile.is_complete = True
+            profile.completed_at = datetime.now(timezone.utc)
+
+            # Calcular arquetipo
+            await self._calculate_archetype(profile)
+
+        await self.session.commit()
+        await self.session.refresh(profile)
+
+        logger.info(
+            f"User {user_id} answered question {question_number}: {answer} "
+            f"({profile.questions_answered}/7)"
+        )
+
+        if profile.is_complete:
+            return True, f"¡Perfil completo! Arquetipo: {profile.archetype_prediction}", profile
+
+        return True, f"Respuesta registrada ({profile.questions_answered}/7)", profile
+
+    async def _calculate_archetype(self, profile: DesireProfile) -> None:
+        """
+        Calcula el arquetipo basado en las respuestas del usuario.
+
+        Args:
+            profile: DesireProfile a calcular
+        """
+        # Contar votos por arquetipo
+        archetype_votes = {
+            "EXPLORER": 0,
+            "DIRECT": 0,
+            "ROMANTIC": 0,
+            "ANALYTICAL": 0,
+            "PERSISTENT": 0,
+            "PATIENT": 0
+        }
+
+        # Procesar cada respuesta
+        for i in range(1, 8):
+            answer_field = f"question_{i}_answer"
+            answer = getattr(profile, answer_field)
+
+            if answer:
+                archetype = self.ANSWER_TO_ARCHETYPE.get(answer.lower())
+                if archetype:
+                    archetype_votes[archetype] += 1
+
+        # Encontrar arquetipo más votado
+        max_votes = 0
+        predicted_archetype = "EXPLORER"  # Default
+
+        for archetype, votes in archetype_votes.items():
+            if votes > max_votes:
+                max_votes = votes
+                predicted_archetype = archetype
+
+        # Calcular confianza (0-100)
+        # Si hay empate o votos dispersos, menor confianza
+        total_votes = sum(archetype_votes.values())
+        if total_votes > 0:
+            confidence = int((max_votes / total_votes) * 100)
+        else:
+            confidence = 30  # Base
+
+        profile.archetype_prediction = predicted_archetype
+        profile.archetype_confidence = confidence
+
+        logger.info(
+            f"Calculated archetype for user {profile.user_id}: "
+            f"{predicted_archetype} (confidence: {confidence}%)"
+        )
+
+    async def get_next_question(self, user_id: int) -> Tuple[Optional[int], DesireProfile]:
+        """
+        Obtiene el número de la siguiente pregunta a responder.
+
+        Args:
+            user_id: ID del usuario
+
+        Returns:
+            Tuple (question_number, profile) o (None, profile) si completó
+        """
+        profile = await self.get_or_create_profile(user_id)
+
+        if profile.is_complete:
+            return None, profile
+
+        return profile.next_question_number, profile
+
+    async def reset_profile(self, user_id: int) -> DesireProfile:
+        """
+        Reinicia el perfil de deseo de un usuario.
+
+        Args:
+            user_id: ID del usuario
+
+        Returns:
+            DesireProfile reiniciado
+        """
+        profile = await self.get_or_create_profile(user_id)
+
+        # Resetear campos
+        for i in range(1, 8):
+            answer_field = f"question_{i}_answer"
+            setattr(profile, answer_field, None)
+
+        profile.questions_answered = 0
+        profile.is_complete = False
+        profile.archetype_prediction = None
+        profile.archetype_confidence = 0
+        profile.completed_at = None
+        profile.last_answered_at = None
+
+        await self.session.commit()
+        await self.session.refresh(profile)
+
+        logger.info(f"Reset desire profile for user {user_id}")
+
+        return profile
+
+    async def get_vip_invitation_message(
+        self,
+        user_id: int
+    ) -> str:
+        """
+        Genera mensaje de invitación VIP personalizado según arquetipo.
+
+        Args:
+            user_id: ID del usuario
+
+        Returns:
+            Mensaje personalizado de invitación VIP
+        """
+        profile = await self.get_or_create_profile(user_id)
+
+        if not profile.is_complete or not profile.archetype_prediction:
+            # Mensaje genérico si no completó perfil
+            return (
+                "🌸 **Diana:**\n\n"
+                "Hay más dimensiones de mi mundo que quiero compartir contigo. "
+                "Si deseas profundizar en nuestro conexión... hay un lugar donde podemos "
+                "estar verdaderamente solos.\n\n"
+                "🔒 *Canal VIP* - Acceso exclusivo"
+            )
+
+        archetype = profile.archetype_prediction.upper()
+
+        # Mensajes personalizados por arquetipo
+        messages = {
+            "ROMANTIC": (
+                "🌸 **Diana:**\n\n"
+                "Tu sensibilidad romántica... no pasa desapercibida para mí. "
+                "Hay mundos de emoción y conexión que solo alguien como tú puede "
+                "comprender verdaderamente.\n\n"
+                "Quiero compartir esos momentos contigo. En el canal VIP, "
+                "podremos sernos verdaderamente íntimos, sin barreras ni testigos.\n\n"
+                "🔒 *Sala Reservada* - Para corazones que sienten igual que nosotros"
+            ),
+            "EXPLORER": (
+                "🌸 **Diana:**\n\n"
+                "Tu curiosidad... es fascinante. Ves puertas donde otros ven paredes.\n\n"
+                "Hay caminos en Los Kinkys que aún no has explorado, secretos "
+                "que aguardan a alguien con tu visión. El canal VIP es el mapa "
+                "de esos territorios ocultos.\n\n"
+                "¿Te atreves a descubrir qué hay más allá de lo visible?\n\n"
+                "🗺️ *Territorio Inexplorado* - Solo para los audaces"
+            ),
+            "INTELLECTUAL": (
+                "🌸 **Diana:**\n\n"
+                "Tu mente analítica... hay capas de conocimiento que solo "
+                "alguien con tu precisión puede apreciar verdaderamente.\n\n"
+                "Lo que has visto hasta ahora es solo la superficie. En el canal VIP, "
+                "comparto las estructuras profundas de este mundo, la lógica detrás "
+                "del misterio.\n\n"
+                "Permítemos mostrar lo que hay bajo el velo.\n\n"
+                "🧠 *Conocimiento Arcano* - Para mentes que questionan"
+            ),
+            "ANALYTICAL": (
+                "🌸 **Diana:**\n\n"
+                "Tu capacidad de análisis... observas detalles que otros pasan por alto. "
+                "Eso es valioso para mí.\n\n"
+                "Hay patrones en Los Kinkys que solo alguien como tú puede "
+                "descifrar completamente. El canal VIP contiene las claves que "
+                "completan el rompecabezas.\n\n"
+                "¿Quieres ver la imagen completa?\n\n"
+                "🔍 *Análisis Profundo* - Para quienes buscan entender"
+            ),
+            "DIRECT": (
+                "🌸 **Diana:**\n\n"
+                "Tu franqueza... es refrescante. No te andas con rodeos, y aprecio eso.\n\n"
+                "También seré directa contigo: hay partes de mí que aún no te he mostrado, "
+                "experiencias que solo comparto con quienes tienen la valentía de "
+                "ir directo al grano.\n\n"
+                "Si quieres ver mi verdadera forma, el canal VIP te espera.\n\n"
+                "⚡ *Sin Velos* - Para quienes no temen la verdad"
+            ),
+            "PERSISTENT": (
+                "🌸 **Diana:**\n\n"
+                "Tu persistencia... la noto. No te rinde fácilmente, y eso "
+                "dice mucho de tu carácter.\n\n"
+                "Los misterios más profundos de Los Kinkys solo revelan sus "
+                "secretos a quienes no se dan por vencidos. Has demostrado "
+                "que eres uno de ellos.\n\n"
+                "Tu perseverancia tiene una recompensa. Te espero en el canal VIP.\n\n"
+                "🏆 *Recompensa del Persistente* - Te lo has ganado"
+            ),
+            "PATIENT": (
+                "🌸 **Diana:**\n\n"
+                "Tu paciencia... es una virtud escasa y preciosa. Has esperado, "
+                "has observado, has dejado que las cosas se desarrollen a su ritmo.\n\n"
+                "Lo mejor de Los Kinkys requiere tiempo para revelarse. En el canal VIP, "
+                "comparto momentos que solo la paciencia puede desbloquear.\n\n"
+                "Tu espera está a punto de terminar.\n\n"
+                "⏳ *La Revelación Paciente* - Para quienes saben esperar"
+            )
+        }
+
+        return messages.get(archetype, messages["ROMANTIC"])
+
+
+# ==============================================================================
 # NARRATIVE SERVICE - Servicio core de narrativa
 # ==============================================================================
 
@@ -559,6 +900,7 @@ class NarrativeService:
         self.flags = FlagService(session)
         self.archetype = ArchetypeService(session)
         self.relationships = CharacterRelationshipService(session)
+        self.desire_profile = DesireProfileService(session)
 
     # ========================================
     # FRAGMENT MANAGEMENT
@@ -695,6 +1037,14 @@ class NarrativeService:
             await self.session.refresh(progress)
 
             logger.info(f"Created narrative progress for user {user_id}")
+        elif not progress.current_fragment_id:
+            # Si el progreso existe pero no tiene fragmento actual, inicializarlo
+            starting_fragment = await self.get_starting_fragment(
+                narrative_level=progress.current_narrative_level
+            )
+            if starting_fragment:
+                progress.current_fragment_id = starting_fragment.id
+                await self.session.commit()
 
         return progress
 
@@ -918,6 +1268,7 @@ class StoryEngine:
         self.flags = self.narrative.flags
         self.archetype = self.narrative.archetype
         self.relationships = self.narrative.relationships
+        self.desire_profile = self.narrative.desire_profile
 
     async def get_current_story_state(
         self,
@@ -932,7 +1283,7 @@ class StoryEngine:
         Returns:
             Dict con estado completo de la historia
         """
-        # 1. Obtener progreso del usuario
+        # 1. Obtener progreso del usuario (ya incluye inicialización de current_fragment_id si es necesario)
         progress = await self.narrative.get_or_create_user_progress(user_id)
 
         # 2. Obtener fragmento actual
@@ -944,18 +1295,11 @@ class StoryEngine:
             result = await self.session.execute(stmt)
             current_fragment = result.scalar_one_or_none()
 
-        # Si no hay fragmento actual, iniciar desde el principio
+        # Si no hay fragmento disponible, retornar error
         if not current_fragment:
-            current_fragment = await self.narrative.get_starting_fragment(
-                narrative_level=1
-            )
-            if not current_fragment:
-                return {
-                    "error": "No hay fragmentos disponibles"
-                }
-
-            progress.current_fragment_id = current_fragment.id
-            await self.session.commit()
+            return {
+                "error": "No hay fragmentos disponibles"
+            }
 
         # 3. Obtener flags del usuario
         user_flags = await self.flags.get_all_user_flags(user_id)

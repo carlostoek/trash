@@ -105,45 +105,6 @@ def format_narrative_message(
     return message
 
 
-def format_choice_button_text(choice, archetype: Optional[ArchetypeProfile] = None) -> str:
-    """
-    Formatea el texto de un botón de elección.
-
-    Args:
-        choice: StoryChoice a formatear
-        archetype: ArchetypeProfile del usuario (opcional)
-
-    Returns:
-        String con el texto del botón formateado
-
-    Example:
-        >>> choice = StoryChoice(
-        ...     choice_text="Follow her",
-        ...     choice_emoji="👣",
-        ...     text_variants={}
-        ... )
-        >>> format_choice_button_text(choice)
-        '👣 Follow her'
-    """
-    # Obtener texto con variante de arquetipo
-    text = choice.choice_text
-
-    if archetype and choice.text_variants:
-        primary = archetype.primary_archetype.lower() if archetype.primary_archetype else "explorer"
-        secondary = archetype.secondary_archetype.lower() if archetype.secondary_archetype else None
-
-        if primary in choice.text_variants:
-            text = choice.text_variants[primary]
-        elif secondary and secondary in choice.text_variants:
-            text = choice.text_variants[secondary]
-
-    # Añadir emoji si existe
-    if choice.choice_emoji:
-        return f"{choice.choice_emoji} {text}"
-
-    return text
-
-
 def format_unlock_message(fragment: StoryFragment, unlock_reason: str) -> str:
     """
     Formatea un mensaje de contenido bloqueado.
@@ -339,5 +300,5 @@ def format_multimedia_fragment(fragment: StoryFragment) -> Optional[Dict[str, An
     return {
         "type": fragment.media_type,  # 'photo' o 'video'
         "file_id": fragment.media_file_id,
-        "caption": fragment.content  # Usar contenido como caption
+        "caption": fragment.content_text  # Usar contenido como caption
     }
