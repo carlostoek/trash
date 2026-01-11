@@ -52,6 +52,7 @@ class ServiceContainer:
         self._pricing_service = None
         self._user_service = None
         self._broadcast_service = None
+        self._narrative_service = None
 
         logger.debug("🏭 ServiceContainer inicializado (modo lazy)")
 

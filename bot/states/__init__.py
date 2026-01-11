@@ -10,6 +10,9 @@ from bot.states.user import (
     TokenRedemptionStates,
     FreeAccessStates
 )
+from bot.states.narrative import (
+    NarrativeUserStates
+)
 
 __all__ = [
     # Admin states
@@ -20,4 +23,7 @@ __all__ = [
     # User states
     "TokenRedemptionStates",
     "FreeAccessStates",
+
+    # Narrative states
+    "NarrativeUserStates",
 ]

@@ -1,0 +1,1037 @@
+"""
+Comprehensive test suite for narrative models and services.
+
+Tests cover:
+- Model creation and properties
+- Service layer functionality
+- Integration between services
+- Edge cases and error handling
+
+Total: 18 tests
+"""
+import pytest
+from datetime import datetime, timedelta, timezone
+from unittest.mock import AsyncMock, Mock
+
+from sqlalchemy import select
+
+from bot.database.models import (
+    StoryFragment,
+    StoryChoice,
+    UserNarrativeProgress,
+    UserChoice,
+    NarrativeUnlock,
+    NarrativeFlag,
+    ArchetypeProfile,
+    CharacterRelationship,
+    User
+)
+from bot.services.narrative import (
+    FlagService,
+    ArchetypeService,
+    CharacterRelationshipService,
+    NarrativeService,
+    StoryEngine
+)
+from bot.database import get_session
+
+
+# ==============================================================================
+# MODEL TESTS (Unit)
+# ==============================================================================
+
+class TestStoryFragmentModel:
+    """Test StoryFragment model creation and properties."""
+
+    @pytest.mark.asyncio
+    async def test_story_fragment_creation(self):
+        """Test creating a story fragment with all fields."""
+        async with get_session() as session:
+
+        fragment = StoryFragment(
+            fragment_id="L1_INTRO_001",
+            narrative_level=1,
+            title="Bienvenida a Los Kinkys",
+            content_text="Bienvenido al mundo de Diana y Lucien...",
+            speaker="NARRATOR",
+            speaker_emotion="mysterious",
+            is_starting_fragment=True,
+            is_ending_fragment=False,
+            besitos_reward=10,
+            experience_reward=50,
+            active=True,
+            sort_order=1
+        )
+
+        session.add(fragment)
+        await session.commit()
+
+        # Retrieve and verify
+        stmt = select(StoryFragment).where(StoryFragment.fragment_id == "L1_INTRO_001")
+        result = await session.execute(stmt)
+        retrieved = result.scalar_one()
+
+        assert retrieved.fragment_id == "L1_INTRO_001"
+        assert retrieved.narrative_level == 1
+        assert retrieved.title == "Bienvenida a Los Kinkys"
+        assert retrieved.speaker == "NARRATOR"
+        assert retrieved.is_starting_fragment is True
+        assert retrieved.besitos_reward == 10
+        assert retrieved.active is True
+
+    @pytest.mark.asyncio
+    async def test_story_fragment_with_media(self):
+        """Test story fragment with media attachment."""
+        async with get_session() as session:
+
+        fragment = StoryFragment(
+            fragment_id="L1_PHOTO_001",
+            narrative_level=1,
+            title="Diana's Photo",
+            content_text="Una foto de Diana...",
+            media_type="photo",
+            media_file_id="AgACAgIAAxkBAAI...",
+            active=True
+        )
+
+        session.add(fragment)
+        await session.commit()
+
+        stmt = select(StoryFragment).where(StoryFragment.fragment_id == "L1_PHOTO_001")
+        result = await session.execute(stmt)
+        retrieved = result.scalar_one()
+
+        assert retrieved.media_type == "photo"
+        assert retrieved.media_file_id == "AgACAgIAAxkBAAI..."
+
+    @pytest.mark.asyncio
+    async def test_story_fragment_json_fields(self):
+        """Test JSON fields in story fragment."""
+        async with get_session() as session:
+
+        unlock_conditions = {
+            "required_choices": ["L1_INTRO_A"],
+            "required_flags": ["met_diana"],
+            "besitos_cost": 100
+        }
+
+        content_variants = {
+            "EXPLORER": "Texto para exploradores...",
+            "ROMANTIC": "Texto para románticos..."
+        }
+
+        fragment = StoryFragment(
+            fragment_id="L2_BRANCH_001",
+            narrative_level=2,
+            title="Branching Path",
+            unlock_conditions=unlock_conditions,
+            content_variants=content_variants,
+            active=True
+        )
+
+        session.add(fragment)
+        await session.commit()
+
+        stmt = select(StoryFragment).where(StoryFragment.fragment_id == "L2_BRANCH_001")
+        result = await session.execute(stmt)
+        retrieved = result.scalar_one()
+
+        assert retrieved.unlock_conditions == unlock_conditions
+        assert retrieved.content_variants == content_variants
+        assert retrieved.unlock_conditions["besitos_cost"] == 100
+
+
+class TestStoryChoiceModel:
+    """Test StoryChoice model creation and relationships."""
+
+    @pytest.mark.asyncio
+    async def test_story_choice_creation(self):
+        """Test creating a story choice with consequences."""
+        async with get_session() as session:
+
+        # Create parent fragment
+        fragment = StoryFragment(
+            fragment_id="L1_INTRO_001",
+            narrative_level=1,
+            title="Introduction",
+            active=True
+        )
+        session.add(fragment)
+        await session.flush()
+
+        # Create target fragment
+        target_fragment = StoryFragment(
+            fragment_id="L1_SCENE_002",
+            narrative_level=1,
+            title="Scene 2",
+            active=True
+        )
+        session.add(target_fragment)
+        await session.flush()
+
+        # Create choice
+        consequences = {
+            "flags_set": ["met_diana"],
+            "archetype_points": {"romantic": +2, "direct": -1},
+            "relationship_change": {"DIANA": +5}
+        }
+
+        choice = StoryChoice(
+            choice_id="L1_INTRO_A",
+            fragment_id=fragment.id,
+            choice_text="Acercarse a Diana",
+            target_fragment_id=target_fragment.id,
+            consequences=consequences,
+            sort_order=1,
+            choice_emoji="💋"
+        )
+
+        session.add(choice)
+        await session.commit()
+
+        # Verify
+        stmt = select(StoryChoice).where(StoryChoice.choice_id == "L1_INTRO_A")
+        result = await session.execute(stmt)
+        retrieved = result.scalar_one()
+
+        assert retrieved.choice_text == "Acercarse a Diana"
+        assert retrieved.consequences == consequences
+        assert retrieved.choice_emoji == "💋"
+        assert retrieved.consequences["archetype_points"]["romantic"] == 2
+
+    @pytest.mark.asyncio
+    async def test_story_choice_relationship(self):
+        """Test relationship between choice and fragment."""
+        async with get_session() as session:
+
+        # Create fragments
+        fragment = StoryFragment(
+            fragment_id="L1_INTRO_001",
+            narrative_level=1,
+            title="Introduction",
+            active=True
+        )
+        session.add(fragment)
+        await session.flush()
+
+        target = StoryFragment(
+            fragment_id="L1_SCENE_002",
+            narrative_level=1,
+            title="Scene 2",
+            active=True
+        )
+        session.add(target)
+        await session.flush()
+
+        # Create choice
+        choice = StoryChoice(
+            choice_id="L1_INTRO_A",
+            fragment_id=fragment.id,
+            choice_text="Continue",
+            target_fragment_id=target.id
+        )
+
+        session.add(choice)
+        await session.commit()
+
+        # Test relationship
+        stmt = select(StoryChoice).where(StoryChoice.choice_id == "L1_INTRO_A")
+        result = await session.execute(stmt)
+        retrieved = result.scalar_one()
+
+        assert retrieved.fragment.fragment_id == "L1_INTRO_001"
+        assert retrieved.target_fragment_id == target.id
+
+
+class TestUserNarrativeProgressModel:
+    """Test UserNarrativeProgress model and properties."""
+
+    @pytest.mark.asyncio
+    async def test_user_progress_creation(self):
+        """Test creating user narrative progress."""
+        async with get_session() as session:
+
+        # Create user
+        user = User(
+            user_id=12345,
+            first_name="Test",
+            role="FREE"
+        )
+        session.add(user)
+        await session.flush()
+
+        progress = UserNarrativeProgress(
+            user_id=12345,
+            current_narrative_level=1,
+            max_narrative_level_reached=1,
+            fragments_completed=[1, 2, 3],
+            levels_completed=[1],
+            total_choices_made=5
+        )
+
+        session.add(progress)
+        await session.commit()
+
+        # Verify
+        stmt = select(UserNarrativeProgress).where(UserNarrativeProgress.user_id == 12345)
+        result = await session.execute(stmt)
+        retrieved = result.scalar_one()
+
+        assert retrieved.current_narrative_level == 1
+        assert retrieved.fragments_completed == [1, 2, 3]
+        assert retrieved.total_choices_made == 5
+
+    @pytest.mark.asyncio
+    async def test_completion_percentage_property(self):
+        """Test completion_percentage property calculation."""
+        async with get_session() as session:
+
+        user = User(user_id=12345, first_name="Test", role="FREE")
+        session.add(user)
+        await session.flush()
+
+        progress = UserNarrativeProgress(
+            user_id=12345,
+            levels_completed=[1, 2, 3]  # 3 out of 6 levels
+        )
+
+        session.add(progress)
+        await session.commit()
+
+        assert progress.completion_percentage == 50.0  # 3/6 * 100
+
+    @pytest.mark.asyncio
+    async def test_is_vip_content_unlocked_property(self):
+        """Test is_vip_content_unlocked property."""
+        async with get_session() as session:
+
+        user = User(user_id=12345, first_name="Test", role="FREE")
+        session.add(user)
+        await session.flush()
+
+        # Test with level 3 (should be False)
+        progress1 = UserNarrativeProgress(
+            user_id=12345,
+            max_narrative_level_reached=3
+        )
+        assert progress1.is_vip_content_unlocked is False
+
+        # Test with level 4 (should be True)
+        progress2 = UserNarrativeProgress(
+            user_id=12345,
+            max_narrative_level_reached=4
+        )
+        assert progress2.is_vip_content_unlocked is True
+
+
+class TestNarrativeFlagModel:
+    """Test NarrativeFlag model and is_active property."""
+
+    @pytest.mark.asyncio
+    async def test_narrative_flag_creation(self):
+        """Test creating a narrative flag."""
+        async with get_session() as session:
+
+        user = User(user_id=12345, first_name="Test", role="FREE")
+        session.add(user)
+        await session.flush()
+
+        flag = NarrativeFlag(
+            user_id=12345,
+            flag_key="met_diana",
+            flag_value="true"
+        )
+
+        session.add(flag)
+        await session.commit()
+
+        stmt = select(NarrativeFlag).where(
+            (NarrativeFlag.user_id == 12345) &
+            (NarrativeFlag.flag_key == "met_diana")
+        )
+        result = await session.execute(stmt)
+        retrieved = result.scalar_one()
+
+        assert retrieved.flag_key == "met_diana"
+        assert retrieved.flag_value == "true"
+
+    @pytest.mark.asyncio
+    async def test_flag_is_active_permanent(self):
+        """Test is_active property for permanent flag (no expiration)."""
+        async with get_session() as session:
+
+        user = User(user_id=12345, first_name="Test", role="FREE")
+        session.add(user)
+        await session.flush()
+
+        flag = NarrativeFlag(
+            user_id=12345,
+            flag_key="met_diana",
+            flag_value="true",
+            expires_at=None  # Permanent flag
+        )
+
+        session.add(flag)
+        await session.commit()
+
+        assert flag.is_active is True
+
+    @pytest.mark.asyncio
+    async def test_flag_is_active_with_expiration(self):
+        """Test is_active property for temporary flag."""
+        async with get_session() as session:
+
+        user = User(user_id=12345, first_name="Test", role="FREE")
+        session.add(user)
+        await session.flush()
+
+        # Expired flag
+        expired_flag = NarrativeFlag(
+            user_id=12345,
+            flag_key="temporary_buff",
+            flag_value="active",
+            expires_at=datetime.now(timezone.utc) - timedelta(hours=1)
+        )
+
+        session.add(expired_flag)
+        await session.commit()
+
+        assert expired_flag.is_active is False
+
+        # Active flag
+        active_flag = NarrativeFlag(
+            user_id=12345,
+            flag_key="active_buff",
+            flag_value="active",
+            expires_at=datetime.now(timezone.utc) + timedelta(hours=1)
+        )
+
+        session.add(active_flag)
+        await session.commit()
+
+        assert active_flag.is_active is True
+
+
+class TestArchetypeProfileModel:
+    """Test ArchetypeProfile model and archetype_points."""
+
+    @pytest.mark.asyncio
+    async def test_archetype_profile_creation(self):
+        """Test creating an archetype profile."""
+        async with get_session() as session:
+
+        user = User(user_id=12345, first_name="Test", role="FREE")
+        session.add(user)
+        await session.flush()
+
+        profile = ArchetypeProfile(
+            user_id=12345,
+            primary_archetype="ROMANTIC",
+            secondary_archetype="EXPLORER",
+            archetype_points={
+                "explorer": 15,
+                "romantic": 20,
+                "direct": 5,
+                "analytical": 8,
+                "persistent": 3,
+                "patient": 7
+            },
+            archetype_confidence=75
+        )
+
+        session.add(profile)
+        await session.commit()
+
+        stmt = select(ArchetypeProfile).where(ArchetypeProfile.user_id == 12345)
+        result = await session.execute(stmt)
+        retrieved = result.scalar_one()
+
+        assert retrieved.primary_archetype == "ROMANTIC"
+        assert retrieved.secondary_archetype == "EXPLORER"
+        assert retrieved.archetype_points["romantic"] == 20
+        assert retrieved.archetype_confidence == 75
+
+    @pytest.mark.asyncio
+    async def test_archetype_points_json_field(self):
+        """Test that archetype_points JSON field serializes correctly."""
+        async with get_session() as session:
+
+        user = User(user_id=12345, first_name="Test", role="FREE")
+        session.add(user)
+        await session.flush()
+
+        points = {
+            "explorer": 10,
+            "romantic": 15,
+            "direct": 5
+        }
+
+        profile = ArchetypeProfile(
+            user_id=12345,
+            archetype_points=points
+        )
+
+        session.add(profile)
+        await session.commit()
+
+        # Retrieve and verify JSON persists
+        stmt = select(ArchetypeProfile).where(ArchetypeProfile.user_id == 12345)
+        result = await session.execute(stmt)
+        retrieved = result.scalar_one()
+
+        assert retrieved.archetype_points == points
+        assert isinstance(retrieved.archetype_points, dict)
+
+
+class TestCharacterRelationshipModel:
+    """Test CharacterRelationship model and relationship_status property."""
+
+    @pytest.mark.asyncio
+    async def test_character_relationship_creation(self):
+        """Test creating a character relationship."""
+        async with get_session() as session:
+
+        user = User(user_id=12345, first_name="Test", role="FREE")
+        session.add(user)
+        await session.flush()
+
+        relationship = CharacterRelationship(
+            user_id=12345,
+            character_name="LUCIEN",
+            relationship_score=50,
+            interaction_count=5
+        )
+
+        session.add(relationship)
+        await session.commit()
+
+        stmt = select(CharacterRelationship).where(
+            (CharacterRelationship.user_id == 12345) &
+            (CharacterRelationship.character_name == "LUCIEN")
+        )
+        result = await session.execute(stmt)
+        retrieved = result.scalar_one()
+
+        assert retrieved.character_name == "LUCIEN"
+        assert retrieved.relationship_score == 50
+
+    @pytest.mark.asyncio
+    async def test_relationship_status_property(self):
+        """Test relationship_status property for different score ranges."""
+        async with get_session() as session:
+
+        user = User(user_id=12345, first_name="Test", role="FREE")
+        session.add(user)
+        await session.flush()
+
+        # Test different score ranges
+        test_cases = [
+            (90, "Deep Intimacy"),
+            (65, "Romantic Interest"),
+            (45, "Close Friend"),
+            (25, "Friendly"),
+            (0, "Neutral"),
+            (-30, "Distant"),
+            (-75, "Hostile")
+        ]
+
+        for score, expected_status in test_cases:
+            relationship = CharacterRelationship(
+                user_id=12345,
+                character_name="TEST",
+                relationship_score=score
+            )
+
+            session.add(relationship)
+            await session.commit()
+
+            assert relationship.relationship_status == expected_status
+
+            # Clean up for next test
+            await session.delete(relationship)
+            await session.commit()
+
+
+class TestNarrativeUnlockModel:
+    """Test NarrativeUnlock model and unique constraint."""
+
+    @pytest.mark.asyncio
+    async def test_narrative_unlock_creation(self):
+        """Test creating a narrative unlock."""
+        async with get_session() as session:
+
+        user = User(user_id=12345, first_name="Test", role="FREE")
+        session.add(user)
+        await session.flush()
+
+        unlock = NarrativeUnlock(
+            user_id=12345,
+            unlock_type="fragment",
+            unlock_id="L1_SECRET_001",
+            unlock_method="choice",
+            unlock_source="chose_romantic_path"
+        )
+
+        session.add(unlock)
+        await session.commit()
+
+        stmt = select(NarrativeUnlock).where(
+            (NarrativeUnlock.user_id == 12345) &
+            (NarrativeUnlock.unlock_type == "fragment") &
+            (NarrativeUnlock.unlock_id == "L1_SECRET_001")
+        )
+        result = await session.execute(stmt)
+        retrieved = result.scalar_one()
+
+        assert retrieved.unlock_type == "fragment"
+        assert retrieved.unlock_id == "L1_SECRET_001"
+        assert retrieved.unlock_method == "choice"
+
+    @pytest.mark.asyncio
+    async def test_narrative_unlock_unique_constraint(self):
+        """Test that user cannot unlock same content twice."""
+        async with get_session() as session:
+
+        user = User(user_id=12345, first_name="Test", role="FREE")
+        session.add(user)
+        await session.flush()
+
+        # First unlock - should succeed
+        unlock1 = NarrativeUnlock(
+            user_id=12345,
+            unlock_type="fragment",
+            unlock_id="L1_SECRET_001",
+            unlock_method="choice"
+        )
+
+        session.add(unlock1)
+        await session.commit()
+
+        # Second unlock - should violate unique constraint
+        unlock2 = NarrativeUnlock(
+            user_id=12345,
+            unlock_type="fragment",
+            unlock_id="L1_SECRET_001",
+            unlock_method="besitos"
+        )
+
+        session.add(unlock2)
+
+        # Should raise integrity error due to unique constraint
+        with pytest.raises(Exception):  # IntegrityError
+            await session.commit()
+
+
+        # ==============================================================================
+        # SERVICE TESTS (Integration)
+        # ==============================================================================
+
+class TestFlagService:
+    """Test FlagService functionality."""
+
+    @pytest.mark.asyncio
+    async def test_set_flag(self):
+        """Test setting a narrative flag."""
+        async with get_session() as session:
+
+        service = FlagService(session)
+
+        flag = await service.set_flag(
+            user_id=12345,
+            flag_key="met_diana",
+            flag_value="true"
+        )
+
+        assert flag.user_id == 12345
+        assert flag.flag_key == "met_diana"
+        assert flag.flag_value == "true"
+        assert flag.expires_at is None
+
+    @pytest.mark.asyncio
+    async def test_get_flag(self):
+        """Test retrieving a narrative flag."""
+        async with get_session() as session:
+
+        service = FlagService(session)
+
+        # Set a flag first
+        await service.set_flag(user_id=12345, flag_key="test_flag")
+
+        # Retrieve it
+        flag = await service.get_flag(user_id=12345, flag_key="test_flag")
+
+        assert flag is not None
+        assert flag.flag_key == "test_flag"
+
+    @pytest.mark.asyncio
+    async def test_has_flag(self):
+        """Test checking if user has a flag."""
+        async with get_session() as session:
+
+        service = FlagService(session)
+
+        # Before setting
+        has_before = await service.has_flag(user_id=12345, flag_key="test_flag")
+        assert has_before is False
+
+        # After setting
+        await service.set_flag(user_id=12345, flag_key="test_flag")
+        has_after = await service.has_flag(user_id=12345, flag_key="test_flag")
+        assert has_after is True
+
+    @pytest.mark.asyncio
+    async def test_clear_flag(self):
+        """Test clearing a narrative flag."""
+        async with get_session() as session:
+
+        service = FlagService(session)
+
+        # Set a flag
+        await service.set_flag(user_id=12345, flag_key="test_flag")
+
+        # Clear it
+        cleared = await service.clear_flag(user_id=12345, flag_key="test_flag")
+        assert cleared is True
+
+        # Verify it's gone
+        flag = await service.get_flag(user_id=12345, flag_key="test_flag")
+        assert flag is None
+
+    @pytest.mark.asyncio
+    async def test_expired_flag_auto_cleanup(self):
+        """Test that expired flags are automatically cleaned up."""
+        async with get_session() as session:
+
+        service = FlagService(session)
+
+        # Set an expired flag
+        await service.set_flag(
+            user_id=12345,
+            flag_key="expired_flag",
+            expires_at=datetime.now(timezone.utc) - timedelta(hours=1)
+        )
+
+        # Try to get it - should be cleaned up
+        flag = await service.get_flag(user_id=12345, flag_key="expired_flag")
+        assert flag is None
+
+
+class TestArchetypeService:
+    """Test ArchetypeService functionality."""
+
+    @pytest.mark.asyncio
+    async def test_get_or_create_archetype_profile(self):
+        """Test getting or creating archetype profile."""
+        async with get_session() as session:
+
+        service = ArchetypeService(session)
+
+        # First call creates profile
+        profile1 = await service.get_or_create_archetype_profile(user_id=12345)
+        assert profile1.primary_archetype == "EXPLORER"
+        assert profile1.archetype_confidence == 30
+
+        # Second call returns existing profile
+        profile2 = await service.get_or_create_archetype_profile(user_id=12345)
+        assert profile1.id == profile2.id
+
+    @pytest.mark.asyncio
+    async def test_add_archetype_points(self):
+        """Test adding archetype points."""
+        async with get_session() as session:
+
+        service = ArchetypeService(session)
+
+        # Create profile
+        profile = await service.get_or_create_archetype_profile(user_id=12345)
+
+        # Add points
+        await service.add_archetype_points(
+            user_id=12345,
+            points_dict={"romantic": +5, "direct": -2}
+        )
+
+        # Verify points updated
+        await session.refresh(profile)
+        assert profile.archetype_points["romantic"] == 5
+        assert profile.archetype_points["direct"] == -2
+
+    @pytest.mark.asyncio
+    async def test_record_choice_timing(self):
+        """Test recording choice timing for archetype detection."""
+        async with get_session() as session:
+
+        service = ArchetypeService(session)
+
+        # Record fast choice
+        await service.record_choice_timing(user_id=12345, choice_time_seconds=5)
+
+        # Record slow choice
+        await service.record_choice_timing(user_id=12345, choice_time_seconds=35)
+
+        # Verify stats
+        profile = await service.get_or_create_archetype_profile(user_id=12345)
+        assert profile.total_choices_analyzed == 2
+        assert profile.average_choice_time_seconds == 20  # (5 + 35) / 2
+
+
+class TestCharacterRelationshipService:
+    """Test CharacterRelationshipService functionality."""
+
+    @pytest.mark.asyncio
+    async def test_get_relationship(self):
+        """Test getting a character relationship."""
+        async with get_session() as session:
+
+        service = CharacterRelationshipService(session)
+
+        # Before creating
+        relationship = await service.get_relationship(user_id=12345, character_name="LUCIEN")
+        assert relationship is None
+
+    @pytest.mark.asyncio
+    async def test_get_or_create_relationship(self):
+        """Test getting or creating a relationship."""
+        async with get_session() as session:
+
+        service = CharacterRelationshipService(session)
+
+        # First call creates
+        rel1 = await service.get_or_create_relationship(user_id=12345, character_name="LUCIEN")
+        assert rel1.relationship_score == 0
+
+        # Second call returns existing
+        rel2 = await service.get_or_create_relationship(user_id=12345, character_name="LUCIEN")
+        assert rel1.id == rel2.id
+
+    @pytest.mark.asyncio
+    async def test_update_relationship_score(self):
+        """Test updating relationship score."""
+        async with get_session() as session:
+
+        service = CharacterRelationshipService(session)
+
+        # Create relationship
+        rel = await service.get_or_create_relationship(user_id=12345, character_name="DIANA")
+
+        # Update score
+        updated = await service.update_relationship_score(
+            user_id=12345,
+            character_name="DIANA",
+            score_change=+50
+        )
+
+        assert updated.relationship_score == 50
+        assert updated.interaction_count == 2
+
+    @pytest.mark.asyncio
+    async def test_relationship_score_bounds(self):
+        """Test that relationship score is bounded between -100 and +100."""
+        async with get_session() as session:
+
+        service = CharacterRelationshipService(session)
+
+        # Create relationship
+        rel = await service.get_or_create_relationship(user_id=12345, character_name="LUCIEN")
+
+        # Try to exceed upper bound
+        updated1 = await service.update_relationship_score(user_id=12345, character_name="LUCIEN", score_change=+200)
+        assert updated1.relationship_score == 100  # Capped at 100
+
+        # Try to exceed lower bound
+        updated2 = await service.update_relationship_score(user_id=12345, character_name="LUCIEN", score_change=-250)
+        assert updated2.relationship_score == -100  # Capped at -100
+
+
+class TestNarrativeService:
+    """Test NarrativeService functionality."""
+
+    @pytest.mark.asyncio
+    async def test_get_starting_fragment(self, session, mock_bot):
+        """Test getting starting fragment for a level."""
+        service = NarrativeService(session, mock_bot)
+
+        # Create starting fragment
+        fragment = StoryFragment(
+            fragment_id="L1_START",
+            narrative_level=1,
+            title="Level 1 Start",
+            is_starting_fragment=True,
+            active=True
+        )
+        session.add(fragment)
+        await session.commit()
+
+        # Get it
+        retrieved = await service.get_starting_fragment(narrative_level=1)
+        assert retrieved is not None
+        assert retrieved.fragment_id == "L1_START"
+
+    @pytest.mark.asyncio
+    async def test_get_fragment(self, session, mock_bot):
+        """Test getting fragment by ID."""
+        service = NarrativeService(session, mock_bot)
+
+        # Create fragment
+        fragment = StoryFragment(
+            fragment_id="L1_TEST",
+            narrative_level=1,
+            title="Test Fragment",
+            active=True
+        )
+        session.add(fragment)
+        await session.commit()
+
+        # Get it
+        retrieved = await service.get_fragment(fragment_id="L1_TEST")
+        assert retrieved is not None
+        assert retrieved.title == "Test Fragment"
+
+    @pytest.mark.asyncio
+    async def test_get_or_create_user_progress(self, session, mock_bot):
+        """Test getting or creating user progress."""
+        service = NarrativeService(session, mock_bot)
+
+        # Create starting fragment first
+        fragment = StoryFragment(
+            fragment_id="L1_START",
+            narrative_level=1,
+            title="Start",
+            is_starting_fragment=True,
+            active=True
+        )
+        session.add(fragment)
+        await session.commit()
+
+        # Create user progress
+        progress = await service.get_or_create_user_progress(user_id=12345)
+        assert progress.user_id == 12345
+        assert progress.current_narrative_level == 1
+
+    @pytest.mark.asyncio
+    async def test_advance_to_next_fragment(self, session, mock_bot):
+        """Test advancing to next fragment via choice."""
+        service = NarrativeService(session, mock_bot)
+
+        # Create fragments
+        fragment1 = StoryFragment(
+            fragment_id="L1_F1",
+            narrative_level=1,
+            title="Fragment 1",
+            active=True
+        )
+        session.add(fragment1)
+        await session.flush()
+
+        fragment2 = StoryFragment(
+            fragment_id="L1_F2",
+            narrative_level=1,
+            title="Fragment 2",
+            active=True
+        )
+        session.add(fragment2)
+        await session.flush()
+
+        # Create choice
+        choice = StoryChoice(
+            choice_id="L1_F1_A",
+            fragment_id=fragment1.id,
+            choice_text="Continue",
+            target_fragment_id=fragment2.id,
+            consequences={
+                "flags_set": ["test_flag"],
+                "archetype_points": {"romantic": 2}
+            }
+        )
+        session.add(choice)
+        await session.commit()
+
+        # Advance
+        success, message, next_fragment, consequences = await service.advance_to_next_fragment(
+            user_id=12345,
+            choice_id="L1_F1_A"
+        )
+
+        assert success is True
+        assert next_fragment.fragment_id == "L1_F2"
+        assert consequences["flags_set"] == ["test_flag"]
+
+
+class TestStoryEngine:
+    """Test StoryEngine coordination."""
+
+    @pytest.mark.asyncio
+    async def test_get_current_story_state(self, session, mock_bot):
+        """Test getting complete story state."""
+        engine = StoryEngine(session, mock_bot)
+
+        # Create starting fragment
+        fragment = StoryFragment(
+            fragment_id="L1_START",
+            narrative_level=1,
+            title="Start",
+            is_starting_fragment=True,
+            active=True
+        )
+        session.add(fragment)
+        await session.commit()
+
+        # Get state
+        state = await engine.get_current_story_state(user_id=12345)
+
+        assert "current_fragment" in state
+        assert "user_progress" in state
+        assert "archetype" in state
+        assert state["can_continue"] is True
+
+    @pytest.mark.asyncio
+    async def test_make_choice(self, session, mock_bot):
+        """Test making a choice through the engine."""
+        engine = StoryEngine(session, mock_bot)
+
+        # Setup fragments and choice
+        f1 = StoryFragment(
+            fragment_id="L1_F1",
+            narrative_level=1,
+            title="F1",
+            active=True
+        )
+        session.add(f1)
+        await session.flush()
+
+        f2 = StoryFragment(
+            fragment_id="L1_F2",
+            narrative_level=1,
+            title="F2",
+            active=True
+        )
+        session.add(f2)
+        await session.flush()
+
+        choice = StoryChoice(
+            choice_id="L1_F1_A",
+            fragment_id=f1.id,
+            choice_text="Go",
+            target_fragment_id=f2.id
+        )
+        session.add(choice)
+        await session.commit()
+
+        # Make choice
+        result = await engine.make_choice(
+            user_id=12345,
+            choice_id="L1_F1_A",
+            choice_time_seconds=15
+        )
+
+        assert result["success"] is True
+        assert "next_fragment" in result
+        assert result["next_fragment"].fragment_id == "L1_F2"
+
+
+# ==============================================================================
+# RUN TESTS
+# ==============================================================================
+
+if __name__ == "__main__":
+    pytest.main([__file__, "-v", "--tb=short"])
